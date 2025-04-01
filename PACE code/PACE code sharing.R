@@ -458,10 +458,10 @@ model_poisson <- glmer(
 ## adding robust standard error 
 library(merDeriv)
 library(sandwich)
-sandwich_cov <- sandwich(smodel_poisson, bread. = bread.glmerMod, meat. = meat(model_poisson, level = 2))
+sandwich_cov <- sandwich(model_poisson, bread. = bread.glmerMod, meat. = meat(model_poisson, level = 2))
 # Extract standard errors (square root of diagonal elements)
 sandwich_se <- sqrt(diag(sandwich_cov))
-beta_hat <- fixef(smodel_poisson)[20]  # Extract fixed-effect coefficients
+beta_hat <- fixef(model_poisson)[20]  # Extract fixed-effect coefficients
 beta_hat - 1.96 * sandwich_se[20]
 beta_hat + 1.96 * sandwich_se[20]
 
