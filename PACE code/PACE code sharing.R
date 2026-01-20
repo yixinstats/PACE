@@ -2,7 +2,7 @@
 
 ### data management ###
 library(readxl)
-data <- read_excel("G:/My Drive/Applied Health/PACE data/PACE DATA 21.10.2024.xlsx")
+data <- read_excel("PACE DATA 21.10.2024.xlsx")
 
 colnames(data)[1] <- 'Building'
 
