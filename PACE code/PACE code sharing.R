@@ -127,12 +127,8 @@ data1$total_transchange <- data1$`Espresso Change`+ data1$`Americano Change`+ da
 data1$total_calchange <- 2*data1$`Espresso Change`+ 2*data1$`Americano Change`+ 97*data1$`Cappuccino Change` + 144*data1$`Latte Change`+ 78*data1$`Flat White Change` + 163*data1$`Mocha Change` + 128*data1$`Hot Chocolate Change`                      
 data1$aver_calchange <- data1$total_calchange/data1$total_transchange
 
-# 2, the proportion of high-calories hot beverage transactions  ## secondary outcome
-data1$high_transchange <- data1$`Cappuccino Change` + data1$`Latte Change`+ data1$`Flat White Change` + data1$`Mocha Change` + data1$`Hot Chocolate Change` 
-data1$prop_highchange <- data1$high_transchange/data1$total_transchange
-
-# 3, the total number of high calorie hot beverage transactions ## secondary outcome
-data1$high_transchange 
+# 2, the total number of hot beverage transactions ## secondary outcome
+data1$total_transchange
 
 #average number of calories per transition ## primary outcome 
 aggregate(aver_calchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
@@ -150,8 +146,8 @@ aggregate(aver_calchange ~ Week, data = data1, FUN = function(x) {
   ),2)
 })
 
-#the total number of high calorie hot beverage transactions  #secondary outcome
-aggregate(high_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
+#the total number of hot beverage transactions  #secondary outcome
+aggregate(total_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
   round(c(
     #case_count = sum(x >= 0),
     mean = mean(x, na.rm = TRUE),
@@ -160,8 +156,8 @@ aggregate(high_transchange ~ sq, data = data1[data1$period==1,], FUN = function(
   ),2)
 })
 # log
-data1$log_high_transchange <- log(data1$high_transchange)
-aggregate(log_high_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
+data1$log_total_transchange <- log(data1$total_transchange)
+aggregate(log_total_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
   round(c(
     mean = mean(x, na.rm = TRUE),
     sd = sd(x, na.rm = TRUE)
@@ -169,39 +165,15 @@ aggregate(log_high_transchange ~ sq, data = data1[data1$period==1,], FUN = funct
 })
 
 
-aggregate(high_transchange ~ Week, data = data1, FUN = function(x) {
+aggregate(total_transchange ~ Week, data = data1, FUN = function(x) {
   round(c(
     mean = mean(x, na.rm = TRUE),
     sd = sd(x, na.rm = TRUE)
   ),2)
-})
-
-# the proportion of high-calories hot beverage transactions  #secondary outcome
-aggregate(high_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
-  round(c(
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),0)
-})
-
-library(dplyr)
-result <- data1[data1$period==1,]%>%
-  group_by(sq) %>% 
-  summarize(
-    sum_toatl_transchange = sum(total_transchange, na.rm = TRUE),
-    sum_highchange = sum(high_transchange, na.rm = TRUE),
-    prop_highchange = sum_highchange/sum_toatl_transchange
-  )
-print(result)
-
-aggregate(prop_highchange ~ Week, data = data1, FUN = function(x) {
-  round(c(
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),2)*100
 })
 
 ### plots
+library(dplyr)
 # average number of calories per transition ## primary outcome 
 aver_cal_mean1 <- aggregate(
   aver_calchange ~ Week + sq, 
@@ -243,9 +215,9 @@ average_plot <- ggplot(data = aver_cal_mean1, aes(x = Week, y = aver_calchange, 
   scale_color_brewer(palette = "Set1") 
 
 
-# the total number of high calorie hot beverage transactions
+# the total number of hot beverage transactions
 high_trans_mean1 <- aggregate(
-  high_transchange ~ Week + sq, 
+  total_transchange ~ Week + sq, 
   data = data1, 
   FUN = function(x) mean(x, na.rm = TRUE)
 )
@@ -254,52 +226,21 @@ high_trans_mean1 <- left_join(high_trans_mean1, intervention_data, by='sq')
 intervention_data2 <- left_join(intervention_data, high_trans_mean1, by = c("sq", "intervention_week"))
 intervention_data2 <- intervention_data2[intervention_data2$intervention_week == intervention_data2$Week,]
 
-ggplot(data = high_trans_mean1, aes(x = Week, y = high_transchange, colour = factor(sq))) +
+ggplot(data = total_trans_mean1, aes(x = Week, y = total_transchange, colour = factor(sq))) +
   geom_point(size = 2) +
   geom_line() +
-  geom_point(data = intervention_data2, aes(x = intervention_week, y = high_transchange, color = factor(sq)), 
+  geom_point(data = intervention_data2, aes(x = intervention_week, y = total_transchange, color = factor(sq)), 
              size =4, shape = 7) +  
-  scale_x_continuous(breaks = unique(high_trans_mean1$Week), labels = date_labels) + 
+  scale_x_continuous(breaks = unique(total_trans_mean1$Week), labels = date_labels) + 
   theme_bw() +
   theme(panel.grid = element_blank()) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   labs(
     x = "Week", 
-    y = "Total Number of High Calorie Hot Beverage Transactions",
+    y = "Total Number of Hot Beverage Transactions",
     colour = "Sequence"
   ) +
   scale_color_brewer(palette = "Set1") # Optional: Improve color palette
-
-# 2, the proportion of high-calories hot beverage transactions  ## secondary outcome
-prop_high_mean1 <- aggregate(
-  prop_highchange ~ Week + sq,
-  data = data1, 
-  FUN = function(x) mean(x, na.rm = TRUE)
-)
-
-prop_high_mean1 <- left_join(prop_high_mean1, intervention_data, by='sq')
-intervention_data3 <- left_join(intervention_data, prop_high_mean1, by = c("sq", "intervention_week"))
-intervention_data3 <- intervention_data3[intervention_data3$intervention_week == intervention_data3$Week,]
-
-pop_plot <- ggplot(data = prop_high_mean1, aes(x = Week, y = prop_highchange, colour = factor(sq))) +
-  geom_point(size = 2) +
-  geom_point(data = intervention_data3, aes(x = intervention_week, y = prop_highchange, color = factor(sq)), 
-             size =4, shape = 7) +  
-  geom_line() +
-  scale_x_continuous(breaks = unique(prop_high_mean1$Week), labels = date_labels) + 
-  theme_bw() +
-  theme(panel.grid = element_blank()) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(
-    x = "Week", 
-    y = "Proportion of High Calories Hot Beverage Transactions",
-    colour = "Sequence"
-  ) +
-  scale_color_brewer(palette = "Set1") # Optional: Improve color palette
-
-library(patchwork)
-average_plot/pop_plot +  plot_layout(guides = 'collect')
-
 
 ## before and after intervention 
 #  average number of calories per transition ## primary outcome 
@@ -331,17 +272,13 @@ box_average <- ggplot(data = data1, aes(x = factor(int, labels = c("Before", "Af
     labels = c("Before", "After") 
   )
 
-#3 the total number of high calorie hot beverage transactions
-
-# 2, the proportion of high-calories hot beverage transactions  ## secondary outcome
-
-prop_high_mean <- aggregate(
-  prop_highchange ~ int,
+# the total number of hot beverage transactions ## secondary outcome
+total_trans_mean1 <- aggregate(
+  total_transchange ~ Week + sq, 
   data = data1, 
   FUN = function(x) mean(x, na.rm = TRUE)
 )
-
-box_pop <- ggplot(data = data1, aes(x = factor(int, labels = c("Before", "After")), y = prop_highchange, color = factor(int))) +
+ggplot(data = data1, aes(x = factor(int, labels = c("Before", "After")), y = log_total_transchange, color = factor(int))) +
   geom_boxplot() +
   stat_summary(fun = mean, geom = "point", shape = 20, size = 4, color = "black") +
   facet_wrap(~ sq, ncol = 4, labeller = labeller(sq = function(x) paste0("Sequence ", x))) +
@@ -354,16 +291,13 @@ box_pop <- ggplot(data = data1, aes(x = factor(int, labels = c("Before", "After"
   ) +
   labs(
     x = "Intervention",
-    y = "Proportion of High Calories Hot Beverage Transactions",
+    y = "Total Number of Beverage Transactions (log)",
     color = "Intervention"
   ) +
   scale_color_manual(
     values = c("skyblue", "orange"),
     labels = c("Before", "After") 
   )
-
-box_average/box_pop
-
 
 ### STATISTICAL ANALYSIS ###
 
@@ -440,37 +374,14 @@ summary(model_lme1)
 confint(model_lme1, method = "Wald") 
 
 ## Secondary analysis
-## proportion of high-cal beverage 
-
-data1$total_transchange <- data1$total_transchange + 1e-6
-
-data1$Building_type1 <- as.numeric(as.factor(data1$Building_type)) 
-
-data2 <- data1[!is.na(data1$aver_calchange),]  #529
-
-# Poisson Model
+## total transactions
 model_poisson <- glmer(
-  high_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int + offset(log(total_transchange)) + (1 | cl),
+  total_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int  + (1 | cl),
   data = data1,
-  family = poisson(link = "log")
+  family = poisson(link = 'log')
 )
-
-## adding robust standard error 
-library(merDeriv)
-library(sandwich)
-sandwich_cov <- sandwich(model_poisson, bread. = bread.glmerMod, meat. = meat(model_poisson, level = 2))
-# Extract standard errors (square root of diagonal elements)
-sandwich_se <- sqrt(diag(sandwich_cov))
-beta_hat <- fixef(model_poisson)[20]  # Extract fixed-effect coefficients
-beta_hat - 1.96 * sandwich_se[20]
-beta_hat + 1.96 * sandwich_se[20]
-
-## update p-value
-# Compute Wald Z-values
-z_values <- beta_hat / sandwich_se[20]
-# Compute p-values using the standard normal distribution
-p_values_z <- 2 * (1 - pnorm(abs(z_values)))  # Two-tailed test
-
+summary(model_poisson)
+confint(model_poisson,method = "Wald")
 
 ### sensitive analysis 1 ###
 # add cluster-specific time trend
@@ -489,52 +400,28 @@ SS1_out1 = lmer(aver_calchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8
 summary(SS1_out1)
 confint(SS1_out1, method='Wald')
 
-SS1_out3 <- glmer(
-  high_transchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8+t_cl9+t_cl10+t_cl11+t_cl12
+SS1_out2 <- glmer(
+  total_transchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8+t_cl9+t_cl10+t_cl11+t_cl12
   +t_cl13+t_cl14+t_cl15+t_cl16+t_cl17+t_cl18+t_cl19+t_cl20+t_cl21+t_cl22+t_cl23+t_cl24+t_cl25 
-  + Building_type + novm + log(basemocha) + int + offset(log(total_transchange)) + (1 | cl),
+  + factor(Building_type) + novm + log(basemocha) + int  + (1 | cl),
   data = data1,
   family = poisson(link = "log")
 )
-
-library("sandwich")
-sandwich_cov1 <- sandwich(SS1_out3, bread. = bread.glmerMod, meat. = meat(SS1_out3, level = 2))
-# Extract standard errors (square root of diagonal elements)
-sandwich_se1 <- sqrt(diag(sandwich_cov1))[32]
-beta_hat1 <- fixef(SS1_out3)[32]  # Extract fixed-effect coefficients
-beta_hat1 - 1.96 * sandwich_se1
-beta_hat1 + 1.96 * sandwich_se1
-
-# Compute Wald Z-values
-z_values1 <- beta_hat1 / sandwich_se1
-
-# Compute p-values using the standard normal distribution
-p_values_z1 <- 2 * (1 - pnorm(abs(z_values1)))  # Two-tailed test
-
+summary(SS1_out2)
+confint(SS1_out2,method = "Wald")
 
 ### sensitive analysis  2 ###
 SS2_out1 = lmer(aver_calchange ~ factor(Week)+ factor(Building_type) + novm + basemocha + int + (1 | cl) + (1|cl:int), data=data1) 
-
 summary(SS2_out1)
 confint(SS2_out1, method='Wald')
 
 SS2_out2 <- glmer(
-  high_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha) + int  + (1 | cl) + (1|cl:int),
+  total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha) + int  + (1 | cl) + (1|cl:int),
   data = data1,
   family = poisson(link = "log")
 )
-
 summary(SS2_out2)
 confint(SS2_out2,method = "Wald")
-
-SS2_out3 <- glmer(
-  high_transchange ~ factor(Week)+ Building_type + novm + log(basemocha) + int + offset(log(total_transchange)) + (1 | cl) + (1|cl:int),
-  data = data1,
-  family = poisson(link = "log")
-)
-
-summary(SS2_out3)
-confint(SS2_out3, method = "Wald")
 
 ### sensitive analysis 3 ###
 #Include an interaction between treatment and number of periods since first treated
@@ -560,7 +447,6 @@ SS3_out1 = lmer(aver_calchange ~ factor(Week) + factor(Building_type) + novm + b
 estimates1 <- summary(SS3_out1)$coefficients[20:31,]  # Extract fixed effect estimates
 # Get confidence intervals
 conf_intervals1 <- confint(SS3_out1, method = "Wald")
-
 # Combine into a dataframe
 results_df1 <- data.frame(
   Estimate = estimates,
@@ -575,47 +461,25 @@ results_average <- ggplot(results_df1, aes(x = x_label, y = Estimate.Estimate)) 
   labs(x = "Number of period since first treated", y = "Mean difference of average calories per transaction") +
   theme_bw()
 
-
-SS3_out3 <- glmer(
-  high_transchange ~ factor(Week) + Building_type + novm + log(basemocha) + int:not_1+int:not_2+int:not_3+int:not_4+int:not_5+int:not_6+int:not_7+int:not_8+int:not_9+int:not_10+int:not_11+int:not_12 + offset(log(total_transchange)) + (1 | cl),
+SS3_out2 <- glmer(
+  total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha)+ int:not_1+int:not_2+int:not_3+int:not_4+int:not_5+int:not_6+int:not_7+int:not_8+int:not_9+int:not_10+int:not_11+int:not_12 + (1 | cl),
   data = data1,
   family = poisson(link = "log")
 )
-
-estimates3 <- summary(SS3_out3)$coefficients[20:31,]  # Extract fixed effect estimates
-estimates3[,1] <- exp(estimates3[,1])
-estimates3[,2] <- estimates3[,2]*estimates3[,1]
-
-library("sandwich")
-sandwich_cov3 <- sandwich(SS3_out3, bread. = bread.glmerMod, meat. = meat(SS3_out3, level = 2))
-# Extract standard errors (square root of diagonal elements)
-sandwich_se3 <- sqrt(diag(sandwich_cov3))[20:31]
-beta_hat3 <- fixef(SS3_out3)[20:31]  # Extract fixed-effect coefficients
-Lower_CI <- exp(beta_hat3 - 1.96 * sandwich_se3)
-Upper_CI <- exp(beta_hat3 + 1.96 * sandwich_se3)
-
-## update p-value
-
-# Compute Wald Z-values
-z_values3 <- beta_hat3 / sandwich_se3
-
-# Compute p-values using the standard normal distribution
-p_values_z3 <- 2 * (1 - pnorm(abs(z_values3)))  # Two-tailed test
-
-# Combine into a dataframe
-results_df3 <- data.frame(
-  Estimate = estimates3,
-  Lower_CI = Lower_CI, # Exclude the first row (random effects variance)
-  Upper_CI = Upper_CI,
+estimates2 <- summary(SS3_out2)$coefficients[20:31,]  # Extract fixed effect estimates
+estimates2[,1] <- exp(estimates2[,1])
+estimates2[,2] <- estimates2[,2]*estimates2[,1]
+conf_intervals2 <- confint(SS3_out2, method = "Wald")
+conf_intervals2 <- exp(conf_intervals2)
+results_df2 <- data.frame(
+  Estimate = estimates2,
+  Lower_CI = conf_intervals2[21:32, 1],  
+  Upper_CI = conf_intervals2[21:32, 2],
   x_label = factor(1:12)
 )
-
-results_pop <- ggplot(results_df3, aes(x = x_label, y = Estimate.Estimate)) +
+ggplot(results_df2, aes(x = x_label, y = Estimate.Estimate)) +
   geom_point() +
   geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
-  labs(x = "Number of period since first treated", y = "Proportion of high-calorie beverages dispensed") +
+  #labs(x = "Number of period since first treated", y = "Proportion of high-calorie beverages dispensed") +
+  labs(x = "Number of period since first treated", y = "Ratio of number of hot beverage transactions") +
   theme_bw()
-
-results_average/results_pop
-
-
