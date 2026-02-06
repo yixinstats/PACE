@@ -127,9 +127,6 @@ data1$total_transchange <- data1$`Espresso Change`+ data1$`Americano Change`+ da
 data1$total_calchange <- 2*data1$`Espresso Change`+ 2*data1$`Americano Change`+ 97*data1$`Cappuccino Change` + 144*data1$`Latte Change`+ 78*data1$`Flat White Change` + 163*data1$`Mocha Change` + 128*data1$`Hot Chocolate Change`                      
 data1$aver_calchange <- data1$total_calchange/data1$total_transchange
 
-# 2, the total number of hot beverage transactions ## secondary outcome
-data1$total_transchange
-
 #average number of calories per transition ## primary outcome 
 aggregate(aver_calchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
   round(c(
@@ -145,6 +142,9 @@ aggregate(aver_calchange ~ Week, data = data1, FUN = function(x) {
     sd = sd(x, na.rm = TRUE)
   ),2)
 })
+# 2, the total number of hot beverage transactions & the total number of high calorie beverage transactions ## secondary outcome
+data1$total_transchange
+data1$high_transchange
 
 #the total number of hot beverage transactions  #secondary outcome
 aggregate(total_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
@@ -374,11 +374,10 @@ summary(model_lme1)
 confint(model_lme1, method = "Wald") 
 
 ## Secondary analysis
-## total transactions
-model_poisson <- glmer(
+## total transactions, same for high calories transactions
+model_poisson <- glmer.nb(
   total_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int  + (1 | cl),
-  data = data1,
-  family = poisson(link = 'log')
+  data = data1
 )
 summary(model_poisson)
 confint(model_poisson,method = "Wald")
@@ -400,12 +399,11 @@ SS1_out1 = lmer(aver_calchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8
 summary(SS1_out1)
 confint(SS1_out1, method='Wald')
 
-SS1_out2 <- glmer(
+SS1_out2 <- glmer.nb(
   total_transchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8+t_cl9+t_cl10+t_cl11+t_cl12
   +t_cl13+t_cl14+t_cl15+t_cl16+t_cl17+t_cl18+t_cl19+t_cl20+t_cl21+t_cl22+t_cl23+t_cl24+t_cl25 
   + factor(Building_type) + novm + log(basemocha) + int  + (1 | cl),
-  data = data1,
-  family = poisson(link = "log")
+  data = data1
 )
 summary(SS1_out2)
 confint(SS1_out2,method = "Wald")
@@ -415,10 +413,9 @@ SS2_out1 = lmer(aver_calchange ~ factor(Week)+ factor(Building_type) + novm + ba
 summary(SS2_out1)
 confint(SS2_out1, method='Wald')
 
-SS2_out2 <- glmer(
+SS2_out2 <- glmer.nb(
   total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha) + int  + (1 | cl) + (1|cl:int),
-  data = data1,
-  family = poisson(link = "log")
+  data = data1
 )
 summary(SS2_out2)
 confint(SS2_out2,method = "Wald")
@@ -461,10 +458,9 @@ results_average <- ggplot(results_df1, aes(x = x_label, y = Estimate.Estimate)) 
   labs(x = "Number of period since first treated", y = "Mean difference of average calories per transaction") +
   theme_bw()
 
-SS3_out2 <- glmer(
+SS3_out2 <- glmer.nb(
   total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha)+ int:not_1+int:not_2+int:not_3+int:not_4+int:not_5+int:not_6+int:not_7+int:not_8+int:not_9+int:not_10+int:not_11+int:not_12 + (1 | cl),
-  data = data1,
-  family = poisson(link = "log")
+  data = data1
 )
 estimates2 <- summary(SS3_out2)$coefficients[20:31,]  # Extract fixed effect estimates
 estimates2[,1] <- exp(estimates2[,1])
