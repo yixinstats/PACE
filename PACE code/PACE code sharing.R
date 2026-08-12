@@ -1,278 +1,335 @@
-### PACE data ###
+# =============================================================================
+# PACE Trial: Effect of a Vending Machine Intervention on Hot Beverage
+#             Calorie Purchases — Stepped-Wedge Cluster Randomised Trial
+#
+# Outcomes:
+#   Primary   - average calories per transaction (aver_calchange)
+#   Secondary - number of hot beverage transactions (total_transchange)
+#               number high-calorie hot beverage transactions (high_transchange) 
+#               proportion of high-calorie hot beverage transactions
+#
+# Design: 8 sequences, 25 clusters (39 vending machine locations), rolled out
+#         in a stepped-wedge design over 15 weekly periods. Building is
+#         nested within cluster (cl); several models additionally include a
+#         (1 | Building) random effect alongside (1 | cl).
+# =============================================================================
 
-### data management ###
+# -----------------------------------------------------------------------------
+# 0. Setup
+# -----------------------------------------------------------------------------
 library(readxl)
-data <- read_excel("PACE DATA 21.10.2024.xlsx")
-
-colnames(data)[1] <- 'Building'
-
-## add cluster 'cl'
 library(dplyr)
 library(stringr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)   # applies Satterthwaite df to lmer() output
+library(splines)
+library(merDeriv)
+library(sandwich)
+library(writexl)
+library(emmeans)    # required for emtrends() in the subgroup analyses
+
+# -----------------------------------------------------------------------------
+# 1. Data import
+# -----------------------------------------------------------------------------
+# NOTE: replace with a relative / project-root path before sharing the
+# repository, e.g. file.path("data", "PACE_data.xlsx")
+data_path <- "G:/PACE DATA 21.10.2024.xlsx"
+data <- read_excel(data_path)
+
+colnames(data)[1] <- "Building"
+
+# -----------------------------------------------------------------------------
+# 2. Cluster, sequence, and intervention-timing assignment
+# -----------------------------------------------------------------------------
+# Building name -> cluster ID.
+# Several buildings appear under more than one raw label in the source data
+# (trailing whitespace / naming variants); both variants are mapped to the
+# same cluster below.
+building_to_cluster <- c(
+  "NCSEM "                     = "1",
+  "James France "               = "2",
+  "Sir David Davies"            = "3",
+  "Design School"                = "4",
+  "Beckwith"                     = "5",
+  "Towers Dining Hall "          = "6",
+  "Holywell IT"                  = "7",
+  "Hollywell "                   = "7",
+  "Stewart Miller"               = "8",
+  "Royce"                        = "9",
+  "EHB Shop "                    = "10",
+  "Wolfson School Downstairs"    = "11",
+  "Business School "             = "12",
+  "ATTIC"                        = "13",
+  "Hazlerigg "                   = "14",
+  "Matthew Arnold"               = "15",
+  "Cayley"                       = "16",
+  "Rutland staff devl"           = "17",
+  "Rutland staff devl "          = "17",
+  "Elvyn Richards "              = "18",
+  "Faraday"                      = "19",
+  "West Park Teaching Hub "      = "20",
+  "Powerbase Gym"                = "21",
+  "Wolfson School "              = "22",
+  "S Building "                  = "23",
+  "David Collett "               = "24",
+  "Rutherford"                   = "25"
+)
+
+# Cluster-level covariates: randomisation sequence (sq), number of vending
+# machines (novm), and mean baseline mocha transactions (basemocha).
+
+cluster_covariates <- tibble::tribble(
+  ~cl,  ~sq, ~novm, ~basemocha,
+  "1",   1,    2,     17.0,
+  "2",   1,    1,     52.0,
+  "3",   1,    1,     12.3,
+  "4",   2,    1,     21.3,
+  "5",   2,    1,     10.3,
+  "6",   2,    2,    166.5,
+  "7",   3,    2,      2.6,
+  "8",   3,    1,     14.0,
+  "9",   3,    1,    277.3,
+  "10",  4,    1,     40.0,
+  "11",  4,    1,     21.7,
+  "12",  4,    4,     70.4,
+  "13",  5,    1,     14.3,
+  "14",  5,    4,     19.2,
+  "15",  5,    1,      5.3,
+  "16",  5,    1,    110.7,
+  "17",  6,    2,     11.3,
+  "18",  6,    2,     91.0,
+  "19",  6,    1,    164.3,
+  "20",  7,    2,     61.5,
+  "21",  7,    1,      6.0,
+  "22",  7,    1,     29.3,
+  "23",  8,    2,     23.8,
+  "24",  8,    2,     84.7,
+  "25",  8,    1,     91.7
+)
+
 data$cl <- sub("\\(.*", "", data$Building)
+data$cl <- unname(building_to_cluster[data$cl])
+data <- left_join(data, cluster_covariates, by = "cl")
 
-##allocate number code of clusters to the building
-data$cl[data$cl == "NCSEM "] <- '1'
-data$cl[data$cl == "James France "] <- '2'
-data$cl[data$cl == "Sir David Davies"] <- '3'
-data$cl[data$cl == "Design School"] <- '4'
-data$cl[data$cl == "Beckwith"] <- '5'
-data$cl[data$cl == "Towers Dining Hall "] <- '6'
-data$cl[data$cl == "Holywell IT"] <- '7'
-data$cl[data$cl == "Hollywell "] <- '7'
-data$cl[data$cl == "Stewart Miller"] <- '8'
-data$cl[data$cl == "Royce"] <- '9'
-data$cl[data$cl == "EHB Shop "] <- '10'
-data$cl[data$cl == "Wolfson School Downstairs"] <- '11'
-data$cl[data$cl == "Business School "] <- '12'
-data$cl[data$cl == "ATTIC"] <- '13'
-data$cl[data$cl == "Hazlerigg "] <- '14'
-data$cl[data$cl == "Matthew Arnold"] <- '15'
-data$cl[data$cl == "Cayley"] <- '16'
-data$cl[data$cl == "Rutland staff devl"] <- '17'
-data$cl[data$cl == "Rutland staff devl "] <- '17'
-data$cl[data$cl == "Elvyn Richards "] <- '18'
-data$cl[data$cl == "Faraday"] <- '19'
-data$cl[data$cl == "West Park Teaching Hub "] <- '20'
-data$cl[data$cl == "Powerbase Gym"] <- '21'
-data$cl[data$cl == "Wolfson School "] <- '22'
-data$cl[data$cl == "S Building "] <- '23'
-data$cl[data$cl == "David Collett "] <- '24'
-data$cl[data$cl == "Rutherford" ] <- '25'
-
-## add sequence according to cl
-data$sq <- NA
-data$sq [data$cl==1] <- 1
-data$sq [data$cl==2] <- 1
-data$sq [data$cl==3] <- 1
-data$sq [data$cl==4] <- 2
-data$sq [data$cl==5] <- 2
-data$sq [data$cl==6] <- 2
-data$sq [data$cl==7] <- 3
-data$sq [data$cl==8] <- 3
-data$sq [data$cl==9] <- 3
-data$sq [data$cl==10] <- 4
-data$sq [data$cl==11] <- 4
-data$sq [data$cl==12] <- 4
-data$sq [data$cl==13] <- 5
-data$sq [data$cl==14] <- 5
-data$sq [data$cl==15] <- 5
-data$sq [data$cl==16] <- 5
-data$sq [data$cl==17] <- 6
-data$sq [data$cl==18] <- 6
-data$sq [data$cl==19] <- 6
-data$sq [data$cl==20] <- 7
-data$sq [data$cl==21] <- 7
-data$sq [data$cl==22] <- 7
-data$sq [data$cl==23] <- 8
-data$sq [data$cl==24] <- 8
-data$sq [data$cl==25] <- 8
-
-## indicate period for later use
+## Period indicator (currently only period 1 is coded from the source data;
+## kept as in the original script)
 data$period <- NA
-data$period[data$Week==1] <- 1
-data$period[data$Week==2] <- 1
-data$period[data$Week==3] <- 1
+data$period[data$Week %in% 1:3] <- 1
 
-## indicate intervention
-data$int <- 0
-#data$int [data$period==1] <- 0
-data$int [data$Week >3 & data$sq ==1] <- 1
-data$int [data$Week >4 & data$sq ==2] <- 1
-data$int [data$Week >5 & data$sq ==3] <- 1
-data$int [data$Week >6 & data$sq ==4] <- 1
-data$int [data$Week >7 & data$sq ==5] <- 1
-data$int [data$Week >8 & data$sq ==6] <- 1
-data$int [data$Week >9 & data$sq ==7] <- 1
-data$int [data$Week >10 & data$sq ==8] <- 1
+## Intervention indicator: a cluster in sequence `sq` switches on in the week
+## after (sq + 2), i.e. sq 1 -> Week > 3, sq 2 -> Week > 4, ..., sq 8 -> Week > 10
+data$int <- as.integer(data$Week > (data$sq + 2))
 
-
-## change outcomes from string to numeric   
+# -----------------------------------------------------------------------------
+# 3. Outcome cleaning
+# -----------------------------------------------------------------------------
+## Beverage columns are read in as character; convert to numeric.
+## Columns 5:20 correspond to the "Total" and "Change" beverage count columns.
 data[, 5:20] <- lapply(data[, 5:20], as.numeric)
-## breakdown version: 
-#data$`Espresso Total` <- as.numeric(data$`Espresso Total`)
-#data$`Americano Total` <- as.numeric(data$`Americano Total`)
-#data$`Cappuccino Total` <- as.numeric(data$`Cappuccino Total`)
-#data$`Latte Total` <- as.numeric(data$`Latte Total`)
-#data$`Flat White Total` <- as.numeric(data$`Flat White Total`)
-#data$`Mocha Total` <- as.numeric(data$`Mocha Total`)
-#data$`Hot Chocolate Total` <- as.numeric(data$`Hot Chocolate Total`)
-#data$`Hot Water Total` <- as.numeric(data$`Hot Water Total`)
 
-#data$`Espresso Change` <- as.numeric(data$`Espresso Change`)
-#data$`Americano Change` <- as.numeric(data$`Americano Change`)
-#data$`Cappuccino Change` <- as.numeric(data$`Cappuccino Change`)
-#data$`Latte Change` <- as.numeric(data$`Latte Change`)
-#data$`Flat White Change` <- as.numeric(data$`Flat White Change`)
-#data$`Mocha Change` <- as.numeric(data$`Mocha Change`)
-#data$`Hot Chocolate Change` <- as.numeric(data$`Hot Chocolate Change`)
-#data$`Hot Water Change` <- as.numeric(data$`Hot Water Change`)
-
-## dealing with missing observations for water due to the machines did not have hot water beverage available for purchase. 
+## Hot water had no purchase option at some machines -> treat missing as zero
 data$`Hot Water Total`[is.na(data$`Hot Water Total`)] <- 0
 data$`Hot Water Change`[is.na(data$`Hot Water Change`)] <- 0
 
-## get rid of missing rows due to machine malfunctions and inaccessible data
-data <- data[which(!is.na(data$`Espresso Total`)),] #572 observations 
+## Drop rows lost to machine malfunction / inaccessible data
+data <- data[!is.na(data$`Espresso Total`), ]  # 572 observations
 
-## in terms of transaction change from previous period to current period, there is no value for 
-data1 <- data1[!is.na(data1$`Americano Change`),] ## 532
+## Drop rows with no valid period-to-period change (first observation for a
+## machine has no prior period to compare against)
 
+data1 <- data[!is.na(data$`Americano Change`), ]  # 532 observations
 
-### Description Analysis ###
+# -----------------------------------------------------------------------------
+# 4. Derived outcome variables
+# -----------------------------------------------------------------------------
+## 1. Average calories per transaction (primary outcome)
+data1$total_transchange <- data1$`Espresso Change` + data1$`Americano Change` +
+  data1$`Cappuccino Change` + data1$`Latte Change` + data1$`Flat White Change` +
+  data1$`Mocha Change` + data1$`Hot Chocolate Change` + data1$`Hot Water Change`
 
-# 1, average number of calories per transition ## primary outcome 
+data1$total_calchange <- 2 * data1$`Espresso Change` + 2 * data1$`Americano Change` +
+  97 * data1$`Cappuccino Change` + 144 * data1$`Latte Change` +
+  78 * data1$`Flat White Change` + 163 * data1$`Mocha Change` +
+  128 * data1$`Hot Chocolate Change`
 
-data1$total_transchange <- data1$`Espresso Change`+ data1$`Americano Change`+ data1$`Cappuccino Change` + data1$`Latte Change`+ data1$`Flat White Change` + data1$`Mocha Change` + data1$`Hot Chocolate Change` + data1$`Hot Water Change`
-data1$total_calchange <- 2*data1$`Espresso Change`+ 2*data1$`Americano Change`+ 97*data1$`Cappuccino Change` + 144*data1$`Latte Change`+ 78*data1$`Flat White Change` + 163*data1$`Mocha Change` + 128*data1$`Hot Chocolate Change`                      
-data1$aver_calchange <- data1$total_calchange/data1$total_transchange
+data1$aver_calchange <- data1$total_calchange / data1$total_transchange
 
-#average number of calories per transition ## primary outcome 
-aggregate(aver_calchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
-  round(c(
-    case_count = sum(x >= 0),
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),2)
+# 2, the total number of high calorie hot beverage transactions ## secondary outcome
+data1$total_transchange
+
+# 3, the total number of high-calories hot beverage transactions  ## secondary outcome
+data1$high_transchange <- data1$`Cappuccino Change` + data1$`Latte Change`+ data1$`Flat White Change` + data1$`Mocha Change` + data1$`Hot Chocolate Change` 
+
+# 4, the  proportion of high calorie hot beverage transactions ## secondary outcome
+data1$prop_highchange <- data1$high_transchange/data1$total_transchange
+
+colnames(data1)[2] <- "Building_type"
+data1$Building_type1 <- as.numeric(as.factor(data1$Building_type))
+
+# -----------------------------------------------------------------------------
+# 5. Descriptive statistics
+# -----------------------------------------------------------------------------
+## Average calories per transaction, by sequence (baseline period only) and by week
+aggregate(aver_calchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(case_count = sum(x >= 0), mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
 })
 
 aggregate(aver_calchange ~ Week, data = data1, FUN = function(x) {
-  round(c(
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),2)
-})
-# 2, the total number of hot beverage transactions & the total number of high calorie beverage transactions ## secondary outcome
-data1$total_transchange
-data1$high_transchange
-
-#the total number of hot beverage transactions  #secondary outcome
-aggregate(total_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
-  round(c(
-    #case_count = sum(x >= 0),
-    mean = mean(x, na.rm = TRUE),
-    #var = var(x, na.rm = TRUE),   
-    sd = sd(x, na.rm = TRUE)
-  ),2)
-})
-# log
-data1$log_total_transchange <- log(data1$total_transchange)
-aggregate(log_total_transchange ~ sq, data = data1[data1$period==1,], FUN = function(x) {
-  round(c(
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),2)
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
 })
 
+## Total beverage transactions, by sequence (baseline period only) and by week
+aggregate(total_transchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
+})
+
+aggregate(log_total_transchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
+})
 
 aggregate(total_transchange ~ Week, data = data1, FUN = function(x) {
-  round(c(
-    mean = mean(x, na.rm = TRUE),
-    sd = sd(x, na.rm = TRUE)
-  ),2)
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
 })
 
-### plots
-library(dplyr)
-# average number of calories per transition ## primary outcome 
-aver_cal_mean1 <- aggregate(
-  aver_calchange ~ Week + sq, 
-  data = data1, 
-  FUN = function(x) mean(x, na.rm = TRUE)
+## High-calorie transaction counts, by sequence (baseline period only) and by week
+aggregate(high_transchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
+})
+
+aggregate(log_high_transchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
+})
+
+aggregate(high_transchange ~ Week, data = data1, FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2)
+})
+
+## Proportion of high-calorie transactions, by sequence (baseline period only)
+aggregate(high_transchange ~ sq, data = data1[data1$period == 1, ], FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 0)
+})
+
+data1[data1$period == 1, ] %>%
+  group_by(sq) %>%
+  summarise(
+    sum_total_transchange = sum(total_transchange, na.rm = TRUE),
+    sum_highchange = sum(high_transchange, na.rm = TRUE),
+    prop_highchange = sum_highchange / sum_total_transchange
+  ) %>%
+  print()
+
+aggregate(prop_highchange ~ Week, data = data1, FUN = function(x) {
+  round(c(mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE)), 2) * 100
+})
+
+# -----------------------------------------------------------------------------
+# 6. Descriptive plots
+# -----------------------------------------------------------------------------
+date_labels <- c(
+  "20.10.23", "27.10.23", "03.11.23", "17.11.23", "01.12.23", "15.12.23",
+  "09.02.24", "23.02.24", "08.03.24", "22.03.24", "26.04.24", "10.05.24",
+  "24.05.24", "31.05.24"
 )
-library(ggplot2)
 
 intervention_data <- data.frame(
-  sq = c(1, 2, 3, 4, 5, 6, 7, 8),  # Sequence numbers
-  intervention_week = c(4, 5, 6,7,8,9,10,11)  # Week of intervention for each sequence
+  sq = 1:8,
+  intervention_week = 4:11
 )
 
-aver_cal_mean1 <- left_join(aver_cal_mean1, intervention_data, by='sq')
-intervention_data1 <- left_join(intervention_data, aver_cal_mean1, by = c("sq", "intervention_week"))
-intervention_data1 <- intervention_data1[intervention_data1$intervention_week == intervention_data1$Week,]
+## helper: mark the week each sequence crosses over, for annotating plots
+mark_intervention_week <- function(mean_by_week_sq) {
+  left_join(intervention_data, mean_by_week_sq, by = c("sq", "intervention_week" = "Week"))
+}
 
-library(ggplot2)
+## 6a. Average calories per transaction over time, by sequence
+aver_cal_mean1 <- aggregate(aver_calchange ~ Week + sq, data = data1, FUN = mean, na.rm = TRUE)
+aver_cal_mean1 <- left_join(aver_cal_mean1, intervention_data, by = "sq")
+intervention_data1 <- mark_intervention_week(aver_cal_mean1)
 
-# adding dates to period 2 to 15
-date_labels <- c("20.10.23", "27.10.23", "03.11.23", "17.11.23", 
-                 "01.12.23", "15.12.23", "09.02.24", "23.02.24", "08.03.24", 
-                 "22.03.24", "26.04.24", "10.05.24", "24.05.24", "31.05.24")
-
-average_plot <- ggplot(data = aver_cal_mean1, aes(x = Week, y = aver_calchange, colour = factor(sq))) +
+average_plot <- ggplot(aver_cal_mean1, aes(x = Week, y = aver_calchange, colour = factor(sq))) +
   geom_point(size = 2) +
-  geom_point(data = intervention_data1, aes(x = intervention_week, y = aver_calchange, color = factor(sq)), 
-             size =4, shape = 7) +  
+  geom_point(data = intervention_data1, aes(x = intervention_week, y = aver_calchange, colour = factor(sq)),
+             size = 4, shape = 7) +
   geom_line() +
-  scale_x_continuous(breaks = unique(aver_cal_mean1$Week), labels = date_labels) + 
+  scale_x_continuous(breaks = unique(aver_cal_mean1$Week), labels = date_labels) +
   theme_bw() +
-  theme(panel.grid = element_blank()) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(
-    x = "Week", 
-    y = "Average Calories per Transaction",
-    colour = "Sequence"
-  ) +
-  scale_color_brewer(palette = "Set1") 
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Week", y = "Average Calories per Transaction", colour = "Sequence") +
+  scale_color_brewer(palette = "Set1")
 
+## 6b. Total high-calorie transactions over time, by sequence (change to total_transchange for total transactions )
+high_trans_mean1 <- aggregate(high_transchange ~ Week + sq, data = data1, FUN = mean, na.rm = TRUE)
+high_trans_mean1 <- left_join(high_trans_mean1, intervention_data, by = "sq")
+intervention_data2 <- mark_intervention_week(high_trans_mean1)
 
-# the total number of hot beverage transactions
-high_trans_mean1 <- aggregate(
-  total_transchange ~ Week + sq, 
-  data = data1, 
-  FUN = function(x) mean(x, na.rm = TRUE)
-)
-
-high_trans_mean1 <- left_join(high_trans_mean1, intervention_data, by='sq')
-intervention_data2 <- left_join(intervention_data, high_trans_mean1, by = c("sq", "intervention_week"))
-intervention_data2 <- intervention_data2[intervention_data2$intervention_week == intervention_data2$Week,]
-
-ggplot(data = total_trans_mean1, aes(x = Week, y = total_transchange, colour = factor(sq))) +
+high_trans_plot <- ggplot(high_trans_mean1, aes(x = Week, y = high_transchange, colour = factor(sq))) +
   geom_point(size = 2) +
   geom_line() +
-  geom_point(data = intervention_data2, aes(x = intervention_week, y = total_transchange, color = factor(sq)), 
-             size =4, shape = 7) +  
-  scale_x_continuous(breaks = unique(total_trans_mean1$Week), labels = date_labels) + 
+  geom_point(data = intervention_data2, aes(x = intervention_week, y = high_transchange, colour = factor(sq)),
+             size = 4, shape = 7) +
+  scale_x_continuous(breaks = unique(high_trans_mean1$Week), labels = date_labels) +
   theme_bw() +
-  theme(panel.grid = element_blank()) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(
-    x = "Week", 
-    y = "Total Number of Hot Beverage Transactions",
-    colour = "Sequence"
-  ) +
-  scale_color_brewer(palette = "Set1") # Optional: Improve color palette
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Week", y = "Total Number of High Calorie Hot Beverage Transactions", colour = "Sequence") +
+  scale_color_brewer(palette = "Set1")
 
-## before and after intervention 
-#  average number of calories per transition ## primary outcome 
-aver_cal_mean_int1 <- aggregate(
-  aver_calchange ~ int, 
-  data = data1, 
-  FUN = function(x) mean(x, na.rm = TRUE)
-)
+## 6c. Proportion of high-calorie transactions over time, by sequence
+prop_high_mean1 <- aggregate(prop_highchange ~ Week + sq, data = data1, FUN = mean, na.rm = TRUE)
+prop_high_mean1 <- left_join(prop_high_mean1, intervention_data, by = "sq")
+intervention_data3 <- mark_intervention_week(prop_high_mean1)
 
-library(ggplot2)
-box_average <- ggplot(data = data1, aes(x = factor(int, labels = c("Before", "After")), y = aver_calchange, color = factor(int))) +
+pop_plot <- ggplot(prop_high_mean1, aes(x = Week, y = prop_highchange, colour = factor(sq))) +
+  geom_point(size = 2) +
+  geom_point(data = intervention_data3, aes(x = intervention_week, y = prop_highchange, colour = factor(sq)),
+             size = 4, shape = 7) +
+  geom_line() +
+  scale_x_continuous(breaks = unique(prop_high_mean1$Week), labels = date_labels) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Week", y = "Proportion of High Calories Hot Beverage Transactions", colour = "Sequence") +
+  scale_color_brewer(palette = "Set1")
+
+average_plot / pop_plot + plot_layout(guides = "collect")
+
+## 6d. Before vs. after intervention, faceted by sequence
+aver_cal_mean_int1 <- aggregate(aver_calchange ~ int, data = data1, FUN = mean, na.rm = TRUE)
+prop_high_mean_int1 <- aggregate(prop_highchange ~ int, data = data1, FUN = mean, na.rm = TRUE)
+
+box_average <- ggplot(data1, aes(x = factor(int, labels = c("Before", "After")),
+                                  y = aver_calchange, colour = factor(int))) +
   geom_boxplot() +
-  stat_summary(fun = mean, geom = "point", shape = 20, size = 4, color = "black") +
-  facet_wrap(~ sq, ncol = 4, labeller = labeller(sq = function(x) paste0("Sequence ", x))) +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 4, colour = "black") +
+  facet_wrap(~sq, ncol = 4, labeller = labeller(sq = function(x) paste0("Sequence ", x))) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
-    strip.background = element_rect(fill = "lightgrey", color = "black"),
+    strip.background = element_rect(fill = "lightgrey", colour = "black"),
     strip.text = element_text(size = 10, face = "bold"),
     legend.position = "none"
   ) +
-  labs(
-    x = "Intervention",
-    y = "Average Calories per Transaction",
-    color = "Intervention"
-  ) +
-  scale_color_manual(
-    values = c("skyblue", "orange"),
-    labels = c("Before", "After") 
-  )
+  labs(x = "Intervention", y = "Average Calories per Transaction") +
+  scale_color_manual(values = c("skyblue", "orange"), labels = c("Before", "After"))
 
-# the total number of hot beverage transactions ## secondary outcome
+box_pop <- ggplot(data1, aes(x = factor(int, labels = c("Before", "After")),
+                              y = prop_highchange, colour = factor(int))) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 4, colour = "black") +
+  facet_wrap(~sq, ncol = 4, labeller = labeller(sq = function(x) paste0("Sequence ", x))) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = "lightgrey", colour = "black"),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "none"
+  ) +
+  labs(x = "Intervention", y = "Proportion of High Calories Hot Beverage Transactions") +
+  scale_color_manual(values = c("skyblue", "orange"), labels = c("Before", "After"))
+
+# the total number of beverage transactions (same for high_transchange)
 total_trans_mean1 <- aggregate(
   total_transchange ~ Week + sq, 
   data = data1, 
@@ -299,183 +356,306 @@ ggplot(data = data1, aes(x = factor(int, labels = c("Before", "After")), y = log
     labels = c("Before", "After") 
   )
 
-### STATISTICAL ANALYSIS ###
+# -----------------------------------------------------------------------------
+# 7. Primary and secondary models
+# -----------------------------------------------------------------------------
+## Sanity check: number of distinct buildings feeding into each cluster
+data1 %>%
+  group_by(cl) %>%
+  summarise(n_Building = n_distinct(Building)) %>%
+  print(n = Inf)
 
-library(lme4)
-library(lmerTest) 
+data1$int <- as.factor(data1$int)
+## Primary analysis: average calories per transaction, adjusting for building
+## type, number of vending machines, and baseline mocha transactions, with
+## crossed random effects for cluster and building
+model_lme1_m <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int +
+    (1 | cl) + (1 | Building),
+  data = data1
+)
+summary(model_lme1_m)
+confint(model_lme1_m, method = "Wald")
 
-## primary analysis
-#adjust 'buiding type', 'number of vending machines' and 'average baseline mocha transactions per cluster'
+## Secondary analysis 1: total number of high-calorie hot beverage transactions
+#add number of days to each period(week)
+data1$nod <- NA
+data1$nod [data1$Week==2] <- 7
+data1$nod [data1$Week==3] <- 7
+data1$nod [data1$Week==4] <- 7
+data1$nod [data1$Week==5] <- 14
+data1$nod [data1$Week==6] <- 14
+data1$nod [data1$Week==7] <- 14
+data1$nod [data1$Week==8] <- 54
+data1$nod [data1$Week==9] <- 14
+data1$nod [data1$Week==10] <- 14
+data1$nod [data1$Week==11] <- 14
+data1$nod [data1$Week==12] <- 35
+data1$nod [data1$Week==13] <- 14
+data1$nod [data1$Week==14] <- 14
+data1$nod [data1$Week==15] <- 7
 
-# add 'number of vending machines'
-data1$novm <- NA
-data1$novm [data1$cl==1] <- 2
-data1$novm [data1$cl==2] <- 1
-data1$novm [data1$cl==3] <- 1
-data1$novm [data1$cl==4] <- 1
-data1$novm [data1$cl==5] <- 1
-data1$novm [data1$cl==6] <- 2
-data1$novm [data1$cl==7] <- 2
-data1$novm [data1$cl==8] <- 1
-data1$novm [data1$cl==9] <- 1
-data1$novm [data1$cl==10] <- 1
-data1$novm [data1$cl==11] <- 1
-data1$novm [data1$cl==12] <- 4
-data1$novm [data1$cl==13] <- 1
-data1$novm [data1$cl==14] <- 4
-data1$novm [data1$cl==15] <- 1
-data1$novm [data1$cl==16] <- 1
-data1$novm [data1$cl==17] <- 2
-data1$novm [data1$cl==18] <- 2
-data1$novm [data1$cl==19] <- 1
-data1$novm [data1$cl==20] <- 2
-data1$novm [data1$cl==21] <- 1
-data1$novm [data1$cl==22] <- 1
-data1$novm [data1$cl==23] <- 2
-data1$novm [data1$cl==24] <- 2
-data1$novm [data1$cl==25] <- 1
+high_nb_m <- glmer.nb(
+  high_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int +
+    offset(log(nod)) + (1 | cl) + (1 | Building),
+  data = data1
+)
 
-# add average baseline mocha transactions per cluster
-data1$basemocha <- NA
-data1$basemocha [data1$cl==1] <- 17
-data1$basemocha [data1$cl==2] <- 52
-data1$basemocha [data1$cl==3] <- 12.3
-data1$basemocha [data1$cl==4] <- 21.3
-data1$basemocha [data1$cl==5] <- 10.3
-data1$basemocha [data1$cl==6] <- 166.5
-data1$basemocha [data1$cl==7] <- 2.6
-data1$basemocha [data1$cl==8] <- 14
-data1$basemocha [data1$cl==9] <- 277.3
-data1$basemocha [data1$cl==10] <- 40
-data1$basemocha [data1$cl==11] <- 21.7
-data1$basemocha [data1$cl==12] <- 70.4
-data1$basemocha [data1$cl==13] <- 14.3
-data1$basemocha [data1$cl==14] <- 19.2
-data1$basemocha [data1$cl==15] <- 5.3
-data1$basemocha [data1$cl==16] <- 110.7
-data1$basemocha [data1$cl==17] <- 11.3
-data1$basemocha [data1$cl==18] <- 91
-data1$basemocha [data1$cl==19] <- 164.3
-data1$basemocha [data1$cl==20] <- 61.5
-data1$basemocha [data1$cl==21] <- 6
-data1$basemocha [data1$cl==22] <- 29.3
-data1$basemocha [data1$cl==23] <- 23.8
-data1$basemocha [data1$cl==24] <- 84.7
-data1$basemocha [data1$cl==25] <- 91.7
+## Secondary analysis 2: total number of beverage transactions
+total_nb_m <- glmer.nb(
+  total_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int +
+    offset(log(nod)) + (1 | cl) + (1 | Building),
+  data = data1
+)
 
-colnames(data1)[2] <- 'Building_type'
+## Secondary analysis 3: proportion of high-calorie transactions (Poisson,
+## offset by total transactions)
+data1$total_transchange <- data1$total_transchange + 1e-6  # avoid log(0) offset
 data1$Building_type1 <- as.numeric(as.factor(data1$Building_type))
+data2 <- data1[!is.na(data1$aver_calchange), ]  # 529 observations
 
-## average_calchange 
-model_lme1 = lmer(aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int + (1 | cl), data=data1) 
+model_poisson <- glmer(
+  high_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int +
+    offset(log(total_transchange)) + (1 | cl),
+  data = data2,
+  family = poisson(link = "log")
+)
 
-library(lmerTest) #The lmerTest package automatically applies Satterthwaite
-summary(model_lme1)
-confint(model_lme1, method = "Wald") 
+## Cluster-robust (sandwich) standard errors for the Poisson model
+sandwich_cov <- sandwich(model_poisson, bread. = bread.glmerMod, meat. = meat(model_poisson, level = 2))
+sandwich_se  <- sqrt(diag(sandwich_cov))
 
-## Secondary analysis
-## total transactions, same for high calories transactions
-model_poisson <- glmer.nb(
-  total_transchange ~ factor(Week) + factor(Building_type1) + novm + log(basemocha) + int  + (1 | cl),
+beta_hat <- fixef(model_poisson)[20]  # coefficient of interest (int) - confirm index against current formula
+ci_lower <- beta_hat - 1.96 * sandwich_se[20]
+ci_upper <- beta_hat + 1.96 * sandwich_se[20]
+
+z_value  <- beta_hat / sandwich_se[20]
+p_value  <- 2 * (1 - pnorm(abs(z_value)))  # two-tailed Wald test
+
+# -----------------------------------------------------------------------------
+# 8. Sensitivity analyses
+# -----------------------------------------------------------------------------
+## SA1 (primary outcome only): time modelled as a restricted cubic spline
+model_lme1_spline <- lmer(
+  aver_calchange ~ ns(Week, df = 3) + factor(Building_type) + novm + basemocha + int +
+    (1 | cl) + (1 | Building),
   data = data1
 )
-summary(model_poisson)
-confint(model_poisson,method = "Wald")
+summary(model_lme1_spline)
+confint(model_lme1_spline, method = "Wald")
 
-### sensitive analysis 1 ###
-# add cluster-specific time trend
-for(k in 1:total_clusters){
-  data1$tmp <- data1$Week*I(data1$cl==k)
-  colnames(data1)[ncol(data1)] <- paste0("t_cl",k)}
+## SA2: cluster-by-intervention random effect
 
-form <- paste0("t_cl", 1:total_clusters, collapse = "+")
+SA2_out1 <- lmer(aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int +
+                    (1 | cl) + (1 | cl:int), data = data1)
+summary(SA2_out1)
+confint(SA2_out1, method = "Wald")
 
-#### cluster specific
+## SA3: interaction between treatment and number of periods since first treated
+total_clusters <- 25
 
-SS1_out1 = lmer(aver_calchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8+t_cl9+t_cl10+t_cl11+t_cl12
-                +t_cl13+t_cl14+t_cl15+t_cl16+t_cl17+t_cl18+t_cl19+t_cl20+t_cl21+t_cl22+t_cl23+t_cl24+t_cl25 
-                + factor(Building_type) + novm + basemocha + int + (1 | cl), data=data1) 
-
-summary(SS1_out1)
-confint(SS1_out1, method='Wald')
-
-SS1_out2 <- glmer.nb(
-  total_transchange ~ t_cl1+t_cl2+t_cl3+t_cl4+t_cl5+t_cl6+t_cl7+t_cl8+t_cl9+t_cl10+t_cl11+t_cl12
-  +t_cl13+t_cl14+t_cl15+t_cl16+t_cl17+t_cl18+t_cl19+t_cl20+t_cl21+t_cl22+t_cl23+t_cl24+t_cl25 
-  + factor(Building_type) + novm + log(basemocha) + int  + (1 | cl),
-  data = data1
-)
-summary(SS1_out2)
-confint(SS1_out2,method = "Wald")
-
-### sensitive analysis  2 ###
-SS2_out1 = lmer(aver_calchange ~ factor(Week)+ factor(Building_type) + novm + basemocha + int + (1 | cl) + (1|cl:int), data=data1) 
-summary(SS2_out1)
-confint(SS2_out1, method='Wald')
-
-SS2_out2 <- glmer.nb(
-  total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha) + int  + (1 | cl) + (1|cl:int),
-  data = data1
-)
-summary(SS2_out2)
-confint(SS2_out2,method = "Wald")
-
-### sensitive analysis 3 ###
-#Include an interaction between treatment and number of periods since first treated
-# add indicator for number of periods since first treated
-data1$not_1 <- 0
-
-# Initialize all indicators to 0
 for (i in 1:12) {
   data1[[paste0("not_", i)]] <- 0
-}
-
-# Assign 1 based on the pattern, ensuring Week does not exceed 15
-for (i in 1:12) {
-  for (j in 1:8) { 
-    week_value <- i + (j + 2)  
-    if (week_value <= 15) {  
+  for (j in 1:8) {
+    week_value <- i + (j + 2)
+    if (week_value <= 15) {
       data1[[paste0("not_", i)]][data1$Week == week_value & data1$sq == j] <- 1
     }
   }
 }
 
-SS3_out1 = lmer(aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int:not_1+int:not_2+int:not_3+int:not_4+int:not_5+int:not_6+int:not_7+int:not_8+int:not_9+int:not_10+int:not_11+int:not_12 + (1 | cl), data=data1) 
-estimates1 <- summary(SS3_out1)$coefficients[20:31,]  # Extract fixed effect estimates
-# Get confidence intervals
-conf_intervals1 <- confint(SS3_out1, method = "Wald")
-# Combine into a dataframe
-results_df1 <- data.frame(
-  Estimate = estimates,
-  Lower_CI = conf_intervals[22:33, 1],  # Exclude the first row (random effects variance)
-  Upper_CI = conf_intervals[22:33, 2],
-  x_label = factor(1:12)
-)
-
-results_average <- ggplot(results_df1, aes(x = x_label, y = Estimate.Estimate)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
-  labs(x = "Number of period since first treated", y = "Mean difference of average calories per transaction") +
-  theme_bw()
-
-SS3_out2 <- glmer.nb(
-  total_transchange ~ factor(Week)+ factor(Building_type) + novm + log(basemocha)+ int:not_1+int:not_2+int:not_3+int:not_4+int:not_5+int:not_6+int:not_7+int:not_8+int:not_9+int:not_10+int:not_11+int:not_12 + (1 | cl),
+not_terms <- paste0("int:not_", 1:12, collapse = " + ")
+SA3_out1 <- lmer(
+  as.formula(paste(
+    "aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha +",
+    not_terms, "+ (1 | cl) + (1 | Building)"
+  )),
   data = data1
 )
-estimates2 <- summary(SS3_out2)$coefficients[20:31,]  # Extract fixed effect estimates
-estimates2[,1] <- exp(estimates2[,1])
-estimates2[,2] <- estimates2[,2]*estimates2[,1]
-conf_intervals2 <- confint(SS3_out2, method = "Wald")
-conf_intervals2 <- exp(conf_intervals2)
-results_df2 <- data.frame(
-  Estimate = estimates2,
-  Lower_CI = conf_intervals2[21:32, 1],  
-  Upper_CI = conf_intervals2[21:32, 2],
-  x_label = factor(1:12)
+
+## Extract the 12 "periods since first treated" estimates.
+## confint() on an lmer fit returns one extra row per random-effect grouping
+## plus one for the residual SD, above the fixed effects. This model has two
+## random effects (cl, Building), i.e. 3 extra rows, hence the +3 row offset
+## between the `summary()` coefficient table (rows 20:31) and the
+## `confint()` table (rows 23:34) below.
+estimates1      <- summary(SA3_out1)$coefficients[20:31, c(1, 2, 5)]  # Estimate, Std. Error, p-value
+conf_intervals1 <- confint(SA3_out1, method = "Wald")
+
+results_df1 <- data.frame(
+  x_label  = factor(1:12),
+  Estimate = estimates1,
+  CI       = paste0("(", round(conf_intervals1[23:34, 1], 2), ", ", round(conf_intervals1[23:34, 2], 2), ")"),
+  Lower_CI = conf_intervals1[23:34, 1],
+  Upper_CI = conf_intervals1[23:34, 2]
 )
-ggplot(results_df2, aes(x = x_label, y = Estimate.Estimate)) +
+
+write_xlsx(results_df1, "ss3.xlsx")
+
+results_plot_ss3 <- ggplot(results_df1, aes(x = x_label, y = Estimate.Estimate)) +
   geom_point() +
   geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
-  #labs(x = "Number of period since first treated", y = "Proportion of high-calorie beverages dispensed") +
-  labs(x = "Number of period since first treated", y = "Ratio of number of hot beverage transactions") +
+  labs(x = "Number of Periods Since First Treated",
+       y = "Mean Difference in Average Calories per Transaction") +
   theme_bw()
+results_plot_ss3
+
+## SA4 (primary outcome only): adjust for method of vending machine payment
+## (1 = payment, 2 = free dispense, 3 = payment and prepaid token)
+payment_method_file <- read_excel("how vending machines are operated file.xlsx")
+vending_payment_lookup <- tibble::tribble(
+  ~cl_name,                              ~cl,
+  "NCSEM",                               "1",
+  "James France",                        "2",
+  "Sir David Davies - upstairs",         "3",
+  "Design School",                       "4",
+  "Beckwith",                            "5",
+  "Towers Dining Hall - Left",           "6",
+  "Holywell",                            "7",
+  "Stewart Miller",                      "8",
+  "Royce",                               "9",
+  "EHB Shop",                            "10",
+  "Wolfson School - downstairs retail",  "11",
+  "Business School",                     "12",
+  "ATTIC",                               "13",
+  "Hazlerigg",                           "14",
+  "Matthew Arnold",                      "15",
+  "Cayley",                              "16",
+  "Rutland staff devl",                  "17",
+  "Elvyn Richards",                      "18",
+  "Faraday",                             "19",
+  "West Park Teaching Hub",              "20",
+  "Powerbase Gym",                       "21",
+  "Wolfson School upstairs",             "22",
+  "S Building",                          "23",
+  "David Collett",                       "24",
+  "Rutherford",                          "25"
+)
+
+payment_method_file <- payment_method_file %>%
+  left_join(vending_payment_lookup, by = c("...2" = "cl_name"))
+
+data1 <- data1 %>%
+  left_join(payment_method_file %>% select(cl, `code for method of payment`), by = "cl")
+
+model_lme1_payment <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + factor(`code for method of payment`) +
+    novm + basemocha + int + (1 | cl) + (1 | Building),
+  data = data1
+)
+summary(model_lme1_payment)
+confint(model_lme1_payment, method = "Wald")
+
+## SA5 (primary outcome only): excluding each cluster's transition period
+data1_no_transition <- data1 %>%
+  group_by(cl) %>%
+  mutate(
+    first_int_week = ifelse(any(int == 1), min(Week[int == 1]), NA)
+  ) %>%
+  filter(Week != first_int_week) %>%
+  ungroup() %>%
+  select(-first_int_week)
+
+transition_periods <- data1 %>%
+  filter(int == 1) %>%
+  group_by(cl) %>%
+  summarise(transition_week = min(Week), .groups = "drop")
+print(transition_periods, n = Inf)
+
+model_lme1_no_transition <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int +
+    (1 | cl) + (1 | Building),
+  data = data1_no_transition
+)
+summary(model_lme1_no_transition)
+confint(model_lme1_no_transition, method = "Wald")
+
+# -----------------------------------------------------------------------------
+# 9. Subgroup analyses
+# -----------------------------------------------------------------------------
+# Proposed subgroups: baseline mocha transactions, building type, and number of
+# vending machines. Each model adds a single
+# treatment-by-subgroup interaction to the primary model and is compared to
+# it via a likelihood-ratio test.
+
+## 9a. Baseline mocha transactions (continuous)
+## Centred so the main effect of `int` stays interpretable at mean baseline mocha
+data1$basemocha_c <- scale(data1$basemocha, scale = FALSE)
+
+model_mocha <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha_c * int +
+    (1 | cl) + (1 | Building),
+  data = data1
+)
+
+mean_mocha <- mean(data1$basemocha, na.rm = TRUE)
+mocha_quantiles <- quantile(data1$basemocha, probs = c(0.10, 0.25, 0.50, 0.75, 0.90), na.rm = TRUE)
+p10_c <- mocha_quantiles["10%"] - mean_mocha
+p50_c <- mocha_quantiles["50%"] - mean_mocha
+p90_c <- mocha_quantiles["90%"] - mean_mocha
+
+emt_mocha <- emtrends(model_mocha, ~basemocha_c, var = "int",
+                      at = list(basemocha_c = c(p10_c, p50_c, p90_c)))
+
+anova(model_lme1_m, model_mocha)   # LRT for the interaction
+summary(emt_mocha, infer = c(TRUE, TRUE))
+
+## 9b. Building type (categorical)
+model_building <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) * int + novm + basemocha +
+    (1 | cl) + (1 | Building),
+  data = data1
+)
+emt_building <- emtrends(model_building, ~Building_type, var = "int")
+summary(emt_building, infer = c(TRUE, TRUE))
+anova(model_lme1_m, model_building)
+
+## 9c. Number of vending machines
+model_nvm <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + factor(novm) * int + basemocha +
+    (1 | cl) + (1 | Building),
+  data = data1
+)
+anova(model_lme1_m, model_nvm)
+
+emt_novm <- emtrends(model_nvm, ~novm, var = "int")
+summary(emt_novm, infer = c(TRUE, TRUE))
+
+# -----------------------------------------------------------------------------
+# 10. Supplementary analysis
+# -----------------------------------------------------------------------------
+## Add a cluster-by-week random effect (clustering by period)
+smodel_lme1 <- lmer(
+  aver_calchange ~ factor(Week) + factor(Building_type) + novm + basemocha + int +
+    (1 | cl) + (1 | cl:Week),
+  data = data1
+)
+
+# -----------------------------------------------------------------------------
+# 11. Secular trend summary table (Table export)
+# -----------------------------------------------------------------------------
+## Model 1: linear mixed model (average calories per transaction)
+coef1 <- summary(model_lme1_m)$coefficients[2:14, 1]
+ci1   <- confint(model_lme1_m, method = "Wald")[5:17, ]
+secular_out1 <- paste0(round(coef1, 2), " (", round(ci1[, 1], 2), ", ", round(ci1[, 2], 2), ")")
+
+## Model 2: negative binomial model (high-calorie transactions), exponentiated
+coef2 <- summary(high_nb_m)$coefficients[2:14, 1]
+se2   <- summary(high_nb_m)$coefficients[2:14, 2]
+ci2   <- cbind(coef2 - 1.96 * se2, coef2 + 1.96 * se2)
+secular_out2 <- paste0(round(exp(coef2), 2), " (", round(exp(ci2[, 1]), 2), ", ", round(exp(ci2[, 2]), 2), ")")
+
+## Model 3: negative binomial model (total transactions), exponentiated
+coef3 <- summary(total_nb_m)$coefficients[2:14, 1]
+se3   <- summary(total_nb_m)$coefficients[2:14, 2]
+ci3   <- cbind(coef3 - 1.96 * se3, coef3 + 1.96 * se3)
+secular_out3 <- paste0(round(exp(coef3), 2), " (", round(exp(ci3[, 1]), 2), ", ", round(exp(ci3[, 2]), 2), ")")
+
+secular_trend <- data.frame(
+  Model_1 = secular_out1,
+  Model_2 = secular_out2,
+  Model_3 = secular_out3
+)
+secular_trend
+
+write_xlsx(secular_trend, "secular_trend.xlsx")
